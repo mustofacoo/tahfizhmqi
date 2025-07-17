@@ -1,0 +1,2248 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Pengelolaan Hafalan & Ibadah Santri</title>
+    
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #10B981; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #059669; }
+
+        .dark { background: linear-gradient(135deg, #1a202c 0%, #2d3748 50%, #4a5568 100%); }
+        .dark .bg-white { background-color: #2d3748 !important; }
+        .dark .bg-gray-50 { background-color: #374151 !important; }
+        .dark .text-gray-900 { color: #f7fafc !important; }
+        .dark .text-gray-600 { color: #cbd5e0 !important; }
+        .dark .border-gray-200 { border-color: #4a5568 !important; }
+
+        .angkatan-12 { background: linear-gradient(135deg, #10B981, #059669); }
+        .angkatan-13 { background: linear-gradient(135deg, #3B82F6, #1E40AF); }
+        .angkatan-14 { background: linear-gradient(135deg, #8B5CF6, #7C3AED); }
+        .angkatan-15 { background: linear-gradient(135deg, #F59E0B, #D97706); }
+
+        @media print { .no-print { display: none !important; } }
+        
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        
+        .slide-enter-active, .slide-leave-active { transition: transform 0.3s ease; }
+        .slide-enter-from { transform: translateY(-10px); }
+        .slide-leave-to { transform: translateY(10px); }
+
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+
+        .tahfizh-progress {
+            background: linear-gradient(90deg, #10B981 0%, #34D399 50%, #6EE7B7 100%);
+        }
+
+        .ibadah-complete {
+            background: linear-gradient(135deg, #10B981, #059669);
+        }
+
+        .ibadah-incomplete {
+            background: linear-gradient(135deg, #EF4444, #DC2626);
+        }
+
+        .spreadsheet-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .spreadsheet-table {
+            min-width: 800px;
+        }
+
+        .sticky-col {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background: white;
+            border-right: 2px solid #e5e7eb;
+        }
+
+        .dark .sticky-col {
+            background: #374151;
+            border-right-color: #4a5568;
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: { 50: '#ecfdf5', 500: '#10B981', 600: '#059669', 700: '#047857' },
+                        emerald: { 50: '#ecfdf5', 500: '#10B981', 600: '#059669' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="min-h-screen transition-colors duration-200" id="app">
+    <!-- Loading Screen -->
+    <div v-if="loading" class="fixed inset-0 bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center z-50">
+        <div class="text-center text-white">
+            <div class="animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mb-4 mx-auto"></div>
+            <h2 class="text-2xl font-bold mb-2">Sistem Pengelolaan Santri</h2>
+            <p class="text-lg opacity-90">Bismillahirrahmanirrahim...</p>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <transition-group name="slide" tag="div" class="fixed top-4 right-4 z-40 space-y-2">
+        <div v-for="notification in notifications" 
+             :key="notification.id"
+             class="max-w-sm rounded-lg shadow-lg p-4 pointer-events-auto"
+             :class="getNotificationClass(notification.type)">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <i :class="getNotificationIcon(notification.type)" class="mr-2"></i>
+                    <span>{{ notification.message }}</span>
+                </div>
+                <button @click="removeNotification(notification.id)" class="ml-2 hover:opacity-75">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+    </transition-group>
+
+    <!-- Modal for Add/Edit Santri -->
+    <div v-if="showSantriModal" 
+         class="fixed inset-0 z-50 overflow-y-auto modal-overlay"
+         @click.self="closeSantriModal">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
+                                <i class="fas fa-user-graduate mr-2 text-emerald-500"></i>
+                                {{ editingSantri ? 'Edit Santri' : 'Tambah Santri Baru' }}
+                            </h3>
+                            
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        Nama Lengkap <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           v-model="santriForm.name"
+                                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                           placeholder="Masukkan nama lengkap santri">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        Angkatan <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="number" 
+                                           v-model.number="santriForm.angkatan"
+                                           min="1" max="50"
+                                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                           placeholder="Contoh: 15">
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Masukkan nomor angkatan (contoh: 12, 13, 14, 15)</p>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        Musyrif Pembimbing <span class="text-red-500">*</span>
+                                    </label>
+                                    <select v-model="santriForm.musyrifId"
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option value="">-- Pilih Musyrif --</option>
+                                        <option v-for="musyrif in musyrifList" :key="musyrif.id" :value="musyrif.id">
+                                            {{ musyrif.name }}
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-50 dark:bg-gray-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button @click="saveSantri()" 
+                            :disabled="isSubmitting || !isSantriFormValid"
+                            :class="isSubmitting || !isSantriFormValid ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-700'"
+                            class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-emerald-600 text-base font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        <span v-if="!isSubmitting">
+                            <i class="fas fa-save mr-2"></i>
+                            {{ editingSantri ? 'Update' : 'Simpan' }}
+                        </span>
+                        <span v-else class="flex items-center">
+                            <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                            {{ editingSantri ? 'Mengupdate...' : 'Menyimpan...' }}
+                        </span>
+                    </button>
+                    
+                    <button @click="closeSantriModal()" 
+                            type="button"
+                            class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-800 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                        <i class="fas fa-times mr-2"></i>Batal
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add/Edit Musyrif -->
+    <div v-if="showMusyrifModal" 
+         class="fixed inset-0 z-50 overflow-y-auto modal-overlay"
+         @click.self="closeMusyrifModal">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
+                                <i class="fas fa-chalkboard-teacher mr-2 text-emerald-500"></i>
+                                {{ editingMusyrif ? 'Edit Musyrif' : 'Tambah Musyrif Baru' }}
+                            </h3>
+                            
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        Nama Lengkap <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           v-model="musyrifForm.name"
+                                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                           placeholder="Masukkan nama lengkap musyrif">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        Username <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           v-model="musyrifForm.username"
+                                           :disabled="editingMusyrif"
+                                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50"
+                                           placeholder="Masukkan username untuk login">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        Password <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="password" 
+                                           v-model="musyrifForm.password"
+                                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                           :placeholder="editingMusyrif ? 'Kosongkan jika tidak ingin mengubah password' : 'Masukkan password'">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-50 dark:bg-gray-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button @click="saveMusyrif()" 
+                            :disabled="isSubmitting || !isMusyrifFormValid"
+                            :class="isSubmitting || !isMusyrifFormValid ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-700'"
+                            class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-emerald-600 text-base font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        <span v-if="!isSubmitting">
+                            <i class="fas fa-save mr-2"></i>
+                            {{ editingMusyrif ? 'Update' : 'Simpan' }}
+                        </span>
+                        <span v-else class="flex items-center">
+                            <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                            {{ editingMusyrif ? 'Mengupdate...' : 'Menyimpan...' }}
+                        </span>
+                    </button>
+                    
+                    <button @click="closeMusyrifModal()" 
+                            type="button"
+                            class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-800 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                        <i class="fas fa-times mr-2"></i>Batal
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="min-h-screen" 
+         :class="{ 'bg-gradient-to-br from-emerald-50 via-green-50 to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-700': true, 'dark': darkMode }">
+        
+        <!-- Login Screen -->
+        <div v-if="!isLoggedIn && !isPublicAccess" class="min-h-screen flex items-center justify-center p-4">
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md">
+                <div class="flex justify-end mb-4">
+                    <button @click="toggleDarkMode()" 
+                            class="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                        <i v-if="!darkMode" class="fas fa-moon"></i>
+                        <i v-else class="fas fa-sun"></i>
+                    </button>
+                </div>
+
+                <div class="text-center mb-8">
+                    <div class="mx-auto w-16 h-16 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center mb-4">
+                        <i class="fas fa-book-quran text-2xl text-white"></i>
+                    </div>
+                    <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">Sistem Pengelolaan Santri</h1>
+                    <p class="text-gray-600 dark:text-gray-400">Tahfizh & Ibadah Harian</p>
+                </div>
+
+                <div class="space-y-4 mb-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            <i class="fas fa-user mr-2"></i>Username
+                        </label>
+                        <input type="text" 
+                               v-model="credentials.username"
+                               @keyup.enter="login"
+                               class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                               placeholder="Masukkan username">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            <i class="fas fa-lock mr-2"></i>Password
+                        </label>
+                        <input type="password" 
+                               v-model="credentials.password"
+                               @keyup.enter="login"
+                               class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                               placeholder="Masukkan password">
+                    </div>
+                </div>
+
+                <div v-if="loginError" class="mb-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300 text-sm">
+                    <i class="fas fa-exclamation-circle mr-2"></i>{{ loginError }}
+                </div>
+
+                <div class="space-y-3">
+                    <button @click="login" 
+                            :disabled="!credentials.username || !credentials.password || isLoggingIn"
+                            :class="!credentials.username || !credentials.password || isLoggingIn ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-lg'"
+                            class="w-full bg-gradient-to-r from-emerald-500 to-green-600 text-white py-3 px-6 rounded-xl font-semibold transition-all duration-200">
+                        <span v-if="!isLoggingIn">
+                            <i class="fas fa-sign-in-alt mr-2"></i>Masuk
+                        </span>
+                        <span v-else class="flex items-center justify-center">
+                            <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                            Masuk...
+                        </span>
+                    </button>
+                    
+                    <button @click="accessPublic" 
+                            class="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 px-6 rounded-xl font-semibold transition-colors">
+                        <i class="fas fa-chart-bar mr-2"></i>Lihat Rekap Tahfizh
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Application -->
+        <div v-else class="min-h-screen">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-emerald-500 to-green-600 shadow-xl">
+                <div class="container mx-auto px-4 py-6">
+                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                        <div>
+                            <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2">
+                                <i class="fas fa-book-quran mr-3"></i>Sistem Pengelolaan Santri
+                            </h1>
+                            <p class="text-lg text-emerald-100">
+                                {{ isPublicAccess ? 'Rekap Tahfizh Public' : 
+                                   isAdmin ? 'Panel Administrator' : 
+                                   isMusyrif ? `Selamat datang, ${currentUser.name}` : 'Dashboard' }}
+                            </p>
+                        </div>
+                        
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                            <button @click="toggleDarkMode()" 
+                                    class="p-2 rounded-lg bg-white/20 backdrop-blur-sm hover:bg-white/30 transition-colors text-white">
+                                <i v-if="!darkMode" class="fas fa-moon"></i>
+                                <i v-else class="fas fa-sun"></i>
+                            </button>
+
+                            <div v-if="!isPublicAccess" class="flex gap-2">
+                                <button v-if="!isPublicAccess" @click="accessPublic" 
+                                        class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors flex items-center space-x-2">
+                                    <i class="fas fa-chart-bar"></i>
+                                    <span class="hidden sm:inline">Rekap Public</span>
+                                </button>
+                                
+                                <button @click="logout()" 
+                                        class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors flex items-center space-x-2">
+                                    <i class="fas fa-sign-out-alt"></i>
+                                    <span class="hidden sm:inline">Logout</span>
+                                </button>
+                            </div>
+                            
+                            <div v-else>
+                                <button @click="backToLogin" 
+                                        class="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-semibold transition-colors flex items-center space-x-2">
+                                    <i class="fas fa-sign-in-alt"></i>
+                                    <span>Login</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="container mx-auto px-4 py-6 max-w-7xl">
+                <!-- Navigation Tabs -->
+                <div v-if="!isPublicAccess" class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-2 mb-6">
+                    <nav class="flex flex-wrap gap-2">
+                        <!-- ADMIN TABS -->
+                        <template v-if="isAdmin">
+                            <button @click="activeTab = 'admin-dashboard'" 
+                                    :class="activeTab === 'admin-dashboard' ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                                    class="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                                <i class="fas fa-tachometer-alt"></i>
+                                <span>Dashboard</span>
+                            </button>
+
+                            <button @click="activeTab = 'manage-musyrif'" 
+                                    :class="activeTab === 'manage-musyrif' ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                                    class="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                                <i class="fas fa-chalkboard-teacher"></i>
+                                <span>Kelola Musyrif</span>
+                            </button>
+
+                            <button @click="activeTab = 'manage-santri'" 
+                                    :class="activeTab === 'manage-santri' ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                                    class="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                                <i class="fas fa-user-graduate"></i>
+                                <span>Kelola Santri</span>
+                            </button>
+                            
+                            <button @click="activeTab = 'tahfizh-recap'" 
+                                    :class="activeTab === 'tahfizh-recap' ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                                    class="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                                <i class="fas fa-chart-line"></i>
+                                <span>Rekap Tahfizh</span>
+                            </button>
+
+                            <button @click="activeTab = 'ibadah-recap'" 
+                                    :class="activeTab === 'ibadah-recap' ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                                    class="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                                <i class="fas fa-pray"></i>
+                                <span>Rekap Ibadah</span>
+                            </button>
+                        </template>
+                        
+                        <!-- MUSYRIF TABS -->
+                        <template v-else-if="isMusyrif">
+                            <button @click="activeTab = 'tahfizh-input'" 
+                                    :class="activeTab === 'tahfizh-input' ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                                    class="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                                <i class="fas fa-book-open"></i>
+                                <span>Input Tahfizh</span>
+                            </button>
+                            
+                            <button @click="activeTab = 'ibadah-input'" 
+                                    :class="activeTab === 'ibadah-input' ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                                    class="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                                <i class="fas fa-hands"></i>
+                                <span>Ibadah Harian</span>
+                            </button>
+                        </template>
+                    </nav>
+                </div>
+
+                <!-- Content Area -->
+                <div class="space-y-6">
+                    <!-- Public Tahfizh Recap -->
+                    <div v-if="isPublicAccess || activeTab === 'tahfizh-recap'">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                <i class="fas fa-chart-line mr-3 text-emerald-500"></i>
+                                Rekap Progress Tahfizh Santri
+                            </h2>
+
+                            <!-- Filter -->
+                            <div class="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Bulan</label>
+                                    <select v-model="tahfizhFilter.month" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option v-for="month in getAvailableMonths()" :key="month.value" :value="month.value">
+                                            {{ month.label }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Angkatan</label>
+                                    <select v-model="tahfizhFilter.angkatan" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option value="">Semua Angkatan</option>
+                                        <option v-for="angkatan in getActiveAngkatanList()" :key="angkatan" :value="angkatan">
+                                            Angkatan {{ angkatan }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Musyrif</label>
+                                    <select v-model="tahfizhFilter.musyrif" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option value="">Semua Musyrif</option>
+                                        <option v-for="musyrif in musyrifList" :key="musyrif.id" :value="musyrif.id">
+                                            {{ musyrif.name }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Urutkan</label>
+                                    <select v-model="tahfizhFilter.sort" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option value="progress">Progress Tertinggi</option>
+                                        <option value="name">Nama (A-Z)</option>
+                                        <option value="angkatan">Angkatan</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Progress Cards -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <div v-for="santri in filteredSantriForRecap" :key="santri.id" 
+                                     class="bg-gradient-to-br from-white to-gray-50 dark:from-gray-700 dark:to-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-600 hover:shadow-lg transition-all duration-200">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h3 class="text-lg font-bold text-gray-900 dark:text-white">{{ santri.name }}</h3>
+                                            <div class="flex items-center space-x-2 mt-1">
+                                                <span :class="`angkatan-${santri.angkatan}`" class="px-2 py-1 rounded-full text-xs font-medium text-white">
+                                                    Angkatan {{ santri.angkatan }}
+                                                </span>
+                                                <span class="text-sm text-gray-600 dark:text-gray-400">
+                                                    {{ getMusyrifName(santri.musyrifId) }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="text-right">
+                                            <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                                                {{ getSantriProgress(santri.id) }}
+                                            </div>
+                                            <div class="text-xs text-gray-500 dark:text-gray-400">Halaman</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600 dark:text-gray-400">Progress Hafalan</span>
+                                            <span class="font-medium text-gray-900 dark:text-white">{{ Math.round((getSantriProgress(santri.id) / 604) * 100) }}%</span>
+                                        </div>
+                                        <div class="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                            <div class="tahfizh-progress h-2 rounded-full transition-all duration-500" 
+                                                 :style="`width: ${Math.round((getSantriProgress(santri.id) / 604) * 100)}%`"></div>
+                                        </div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                            Target: 604 halaman (30 Juz)
+                                        </div>
+                                    </div>
+
+                                    <!-- Murojaah Progress -->
+                                    <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-sm text-gray-600 dark:text-gray-400">Murojaah Bulan Ini</span>
+                                            <span class="font-medium text-purple-600 dark:text-purple-400">
+                                                {{ getMonthlyMurojaah(santri.id) }} Juz
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="filteredSantriForRecap.length === 0" class="text-center py-12">
+                                <div class="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-book-quran text-2xl text-gray-400"></i>
+                                </div>
+                                <h4 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Tidak Ada Data</h4>
+                                <p class="text-gray-600 dark:text-gray-400">Tidak ada santri yang sesuai dengan filter.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin Dashboard -->
+                    <div v-if="activeTab === 'admin-dashboard'" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <div class="bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl p-6 text-white">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-3xl font-bold">{{ totalSantri }}</div>
+                                        <div class="text-emerald-100">Total Santri</div>
+                                    </div>
+                                    <i class="fas fa-user-graduate text-4xl text-emerald-200"></i>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-3xl font-bold">{{ totalMusyrif }}</div>
+                                        <div class="text-blue-100">Total Musyrif</div>
+                                    </div>
+                                    <i class="fas fa-chalkboard-teacher text-4xl text-blue-200"></i>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-3xl font-bold">{{ averageProgress }}</div>
+                                        <div class="text-purple-100">Rata-rata Progress</div>
+                                    </div>
+                                    <i class="fas fa-chart-line text-4xl text-purple-200"></i>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-3xl font-bold">{{ todayIbadahCompletion }}%</div>
+                                        <div class="text-orange-100">Ibadah Hari Ini</div>
+                                    </div>
+                                    <i class="fas fa-pray text-4xl text-orange-200"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Progress by Angkatan -->
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                            <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-4">
+                                <i class="fas fa-chart-bar mr-2 text-emerald-500"></i>Progress per Angkatan
+                            </h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div v-for="angkatan in getActiveAngkatanList()" :key="angkatan" 
+                                     class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h4 class="font-semibold text-gray-900 dark:text-white">Angkatan {{ angkatan }}</h4>
+                                        <span :class="`angkatan-${angkatan}`" class="px-2 py-1 rounded-full text-xs font-medium text-white">
+                                            {{ getAngkatanCount(angkatan) }} santri
+                                        </span>
+                                    </div>
+                                    <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mb-2">
+                                        {{ getAngkatanAverageProgress(angkatan) }}
+                                    </div>
+                                    <div class="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                        <div :class="`angkatan-${angkatan}`" class="h-2 rounded-full transition-all duration-500" 
+                                             :style="`width: ${Math.round((getAngkatanAverageProgress(angkatan) / 604) * 100)}%`"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin Manage Musyrif -->
+                    <div v-if="activeTab === 'manage-musyrif'" class="space-y-6">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                                <h3 class="text-xl font-bold text-gray-900 dark:text-white">
+                                    <i class="fas fa-chalkboard-teacher mr-2 text-emerald-500"></i>Manajemen Musyrif
+                                </h3>
+                                <button @click="openMusyrifModal()" 
+                                        class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors flex items-center space-x-2">
+                                    <i class="fas fa-plus"></i>
+                                    <span>Tambah Musyrif</span>
+                                </button>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <div v-for="musyrif in musyrifList" :key="musyrif.id" 
+                                     class="bg-gradient-to-br from-white to-gray-50 dark:from-gray-700 dark:to-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-600">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <div class="flex items-center space-x-3">
+                                            <div class="w-12 h-12 bg-emerald-500 text-white rounded-full flex items-center justify-center font-bold text-lg">
+                                                {{ musyrif.name.charAt(0).toUpperCase() }}
+                                            </div>
+                                            <div>
+                                                <h4 class="font-bold text-gray-900 dark:text-white">{{ musyrif.name }}</h4>
+                                                <p class="text-sm text-gray-600 dark:text-gray-400">@{{ musyrif.username }}</p>
+                                            </div>
+                                        </div>
+                                        <div class="flex space-x-2">
+                                            <button @click="editMusyrif(musyrif)" 
+                                                    class="p-2 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded-lg transition-colors">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button @click="deleteMusyrif(musyrif.id)" 
+                                                    class="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="text-center">
+                                        <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                                            {{ getSantriByMusyrif(musyrif.id).length }}
+                                        </div>
+                                        <div class="text-sm text-gray-600 dark:text-gray-400">Santri Binaan</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin Manage Santri -->
+                    <div v-if="activeTab === 'manage-santri'" class="space-y-6">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                                <h3 class="text-xl font-bold text-gray-900 dark:text-white">
+                                    <i class="fas fa-user-graduate mr-2 text-emerald-500"></i>Manajemen Santri
+                                </h3>
+                                <button @click="openSantriModal()" 
+                                        class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors flex items-center space-x-2">
+                                    <i class="fas fa-plus"></i>
+                                    <span>Tambah Santri</span>
+                                </button>
+                            </div>
+
+                            <!-- Filter -->
+                            <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Angkatan</label>
+                                    <select v-model="santriFilter.angkatan" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option value="">Semua Angkatan</option>
+                                        <option v-for="angkatan in getActiveAngkatanList()" :key="angkatan" :value="angkatan">
+                                            Angkatan {{ angkatan }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Musyrif</label>
+                                    <select v-model="santriFilter.musyrif" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option value="">Semua Musyrif</option>
+                                        <option v-for="musyrif in musyrifList" :key="musyrif.id" :value="musyrif.id">
+                                            {{ musyrif.name }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cari Nama</label>
+                                    <input type="text" 
+                                           v-model="santriFilter.search"
+                                           placeholder="Ketik nama santri..."
+                                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <div v-for="santri in filteredSantri" :key="santri.id" 
+                                     class="bg-gradient-to-br from-white to-gray-50 dark:from-gray-700 dark:to-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-600">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h4 class="font-bold text-gray-900 dark:text-white">{{ santri.name }}</h4>
+                                            <div class="flex items-center space-x-2 mt-1">
+                                                <span :class="`angkatan-${santri.angkatan}`" class="px-2 py-1 rounded-full text-xs font-medium text-white">
+                                                    Angkatan {{ santri.angkatan }}
+                                                </span>
+                                            </div>
+                                            <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">{{ getMusyrifName(santri.musyrifId) }}</p>
+                                        </div>
+                                        <div class="flex space-x-2">
+                                            <button @click="editSantri(santri)" 
+                                                    class="p-2 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded-lg transition-colors">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button @click="deleteSantri(santri.id)" 
+                                                    class="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="text-center">
+                                        <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                                            {{ getSantriProgress(santri.id) }}
+                                        </div>
+                                        <div class="text-sm text-gray-600 dark:text-gray-400">Halaman Hafalan</div>
+                                        <div class="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mt-2">
+                                            <div class="tahfizh-progress h-2 rounded-full transition-all duration-500" 
+                                                 :style="`width: ${Math.round((getSantriProgress(santri.id) / 604) * 100)}%`"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Musyrif Tahfizh Input -->
+                    <div v-if="activeTab === 'tahfizh-input'" class="space-y-6">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                <i class="fas fa-book-open mr-3 text-emerald-500"></i>
+                                Input Progress Tahfizh - {{ getCurrentDateString() }}
+                            </h2>
+
+                            <div class="space-y-6">
+                                <div v-for="santri in mySantri" :key="santri.id" 
+                                     class="bg-gradient-to-r from-emerald-50 to-green-50 dark:from-gray-700 dark:to-gray-800 rounded-xl p-6 border border-emerald-200 dark:border-gray-600">
+                                    <div class="flex flex-col lg:flex-row lg:items-center gap-6">
+                                        <div class="flex items-center space-x-4">
+                                            <div class="w-12 h-12 bg-emerald-500 text-white rounded-full flex items-center justify-center font-bold text-lg">
+                                                {{ santri.name.charAt(0).toUpperCase() }}
+                                            </div>
+                                            <div>
+                                                <h3 class="text-lg font-bold text-gray-900 dark:text-white">{{ santri.name }}</h3>
+                                                <div class="flex items-center space-x-2">
+                                                    <span :class="`angkatan-${santri.angkatan}`" class="px-2 py-1 rounded-full text-xs font-medium text-white">
+                                                        Angkatan {{ santri.angkatan }}
+                                                    </span>
+                                                    <span class="text-sm text-gray-600 dark:text-gray-400">
+                                                        Progress: {{ getSantriProgress(santri.id) }} halaman
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                                    Halaman Awal Setoran
+                                                </label>
+                                                <input type="number" 
+                                                       v-model="tahfizhInput[santri.id].startPage"
+                                                       min="1" max="604"
+                                                       class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                       placeholder="1">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                                    Halaman Akhir Setoran
+                                                </label>
+                                                <input type="number" 
+                                                       v-model="tahfizhInput[santri.id].endPage"
+                                                       min="1" max="604"
+                                                       class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                       placeholder="1">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                                    Murojaah (Juz)
+                                                </label>
+                                                <select v-model="tahfizhInput[santri.id].murojaah"
+                                                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                                    <option value="">Tidak ada murojaah</option>
+                                                    <option v-for="n in 30" :key="n" :value="n">Juz {{ n }}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                                    Ujian (Opsional)
+                                                </label>
+                                                <input type="text" 
+                                                       v-model="tahfizhInput[santri.id].exam"
+                                                       class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                       placeholder="Misal: Ujian Juz 1">
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <button @click="saveTahfizhProgress(santri.id)" 
+                                                    :disabled="!canSaveTahfizh(santri.id)"
+                                                    :class="!canSaveTahfizh(santri.id) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-700'"
+                                                    class="px-6 py-2 bg-emerald-600 text-white rounded-lg font-medium transition-colors">
+                                                <i class="fas fa-save mr-2"></i>Simpan
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Today's Progress Display -->
+                                    <div v-if="getTodayTahfizhProgress(santri.id)" class="mt-4 p-4 bg-green-100 dark:bg-green-900/20 rounded-lg">
+                                        <h4 class="font-semibold text-green-800 dark:text-green-200 mb-2">
+                                            <i class="fas fa-check-circle mr-2"></i>Progress Hari Ini
+                                        </h4>
+                                        <div class="text-sm text-green-700 dark:text-green-300">
+                                            Setoran: Halaman {{ getTodayTahfizhProgress(santri.id).startPage }} - {{ getTodayTahfizhProgress(santri.id).endPage }}
+                                            <span v-if="getTodayTahfizhProgress(santri.id).murojaah" class="ml-2">
+                                                | Murojaah: Juz {{ getTodayTahfizhProgress(santri.id).murojaah }}
+                                            </span>
+                                            <span v-if="getTodayTahfizhProgress(santri.id).exam" class="ml-2">
+                                                | Ujian: {{ getTodayTahfizhProgress(santri.id).exam }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="mySantri.length === 0" class="text-center py-12">
+                                <div class="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-user-graduate text-2xl text-gray-400"></i>
+                                </div>
+                                <h4 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Belum Ada Santri</h4>
+                                <p class="text-gray-600 dark:text-gray-400">Anda belum memiliki santri binaan.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Musyrif Ibadah Input - Spreadsheet Style -->
+                    <div v-if="activeTab === 'ibadah-input'" class="space-y-6">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                <i class="fas fa-hands mr-3 text-emerald-500"></i>
+                                Ibadah Harian - {{ getAvailableMonths().find(m => m.value === ibadahFilter.month)?.label || 'Bulan Ini' }}
+                            </h2>
+
+                            <!-- Month Filter -->
+                            <div class="mb-6">
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Bulan</label>
+                                <select v-model="ibadahFilter.month" 
+                                        class="w-full md:w-64 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                    <option v-for="month in getAvailableMonths()" :key="month.value" :value="month.value">
+                                        {{ month.label }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <!-- Spreadsheet Container -->
+                            <div class="spreadsheet-container">
+                                <div class="spreadsheet-table">
+                                    <!-- Header Row -->
+                                    <div class="flex bg-gray-100 dark:bg-gray-700 rounded-t-lg border-b-2 border-gray-200 dark:border-gray-600 sticky top-0 z-20">
+                                        <!-- Santri Column Header -->
+                                        <div class="sticky-col w-48 p-4 font-semibold text-gray-900 dark:text-white border-r-2 border-gray-300 dark:border-gray-600">
+                                            Santri / Ibadah
+                                        </div>
+                                        
+                                        <!-- Date Headers -->
+                                        <div v-for="date in getDateRange(ibadahFilter.month)" :key="date"
+                                             class="w-20 p-2 text-center border-r border-gray-200 dark:border-gray-600 flex-shrink-0">
+                                            <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                                {{ formatDayName(date) }}
+                                            </div>
+                                            <div class="text-xs text-gray-500 dark:text-gray-400">
+                                                {{ formatDateShort(date) }}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Santri Rows -->
+                                    <div v-for="santri in mySantri" :key="santri.id" class="border-b border-gray-200 dark:border-gray-600">
+                                        <!-- Santri Header Row -->
+                                        <div class="flex bg-white dark:bg-gray-800">
+                                            <div class="sticky-col w-48 p-3 border-r-2 border-gray-300 dark:border-gray-600">
+                                                <div class="flex items-center space-x-3">
+                                                    <div class="w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                                                        {{ santri.name.charAt(0).toUpperCase() }}
+                                                    </div>
+                                                    <div>
+                                                        <div class="font-medium text-gray-900 dark:text-white text-sm">{{ santri.name }}</div>
+                                                        <span :class="`angkatan-${santri.angkatan}`" class="px-2 py-0.5 rounded-full text-xs font-medium text-white">
+                                                            Angkatan {{ santri.angkatan }}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Monthly Summary Cells -->
+                                            <div v-for="date in getDateRange(ibadahFilter.month)" :key="date"
+                                                 class="w-20 p-1 border-r border-gray-200 dark:border-gray-600 flex-shrink-0">
+                                                <div class="text-center">
+                                                    <div class="w-12 h-12 mx-auto rounded-lg flex items-center justify-center text-xs font-bold cursor-pointer transition-all duration-200"
+                                                         :class="getIbadahCompletion(santri.id, date) === 100 ? 'bg-green-500 text-white hover:bg-green-600' : 
+                                                                getIbadahCompletion(santri.id, date) >= 80 ? 'bg-yellow-500 text-white hover:bg-yellow-600' :
+                                                                getIbadahCompletion(santri.id, date) >= 50 ? 'bg-orange-500 text-white hover:bg-orange-600' :
+                                                                getIbadahCompletion(santri.id, date) > 0 ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'"
+                                                         @click="toggleDateExpansion(santri.id, date)">
+                                                        {{ getIbadahCompletion(santri.id, date) }}%
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Ibadah Detail Rows (when expanded) -->
+                                        <template v-if="expandedDates[santri.id + '-' + getCurrentDateString()]">
+                                            <div v-for="ibadah in ibadahList" :key="ibadah.key" 
+                                                 class="flex bg-gray-50 dark:bg-gray-700">
+                                                <div class="sticky-col w-48 p-3 border-r-2 border-gray-300 dark:border-gray-600">
+                                                    <div class="flex items-center space-x-2 ml-8">
+                                                        <i :class="ibadah.icon" class="text-sm" :class="ibadah.color"></i>
+                                                        <span class="text-sm text-gray-700 dark:text-gray-300">{{ ibadah.name }}</span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div v-for="date in getDateRange(ibadahFilter.month)" :key="date"
+                                                     class="w-20 p-2 border-r border-gray-200 dark:border-gray-600 flex-shrink-0">
+                                                    <div class="flex justify-center">
+                                                        <label class="relative inline-flex items-center cursor-pointer">
+                                                            <input type="checkbox" 
+                                                                   :checked="isIbadahCompleted(santri.id, ibadah.key, date)"
+                                                                   @change="updateIbadahStatus(santri.id, ibadah.key, date, $event.target.checked)"
+                                                                   class="sr-only peer">
+                                                            <div class="relative w-8 h-4 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-300 dark:peer-focus:ring-emerald-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-600"></div>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Legend -->
+                            <div class="mt-6 flex flex-wrap items-center gap-4 text-sm p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-4 h-4 bg-green-500 rounded"></div>
+                                    <span class="text-gray-700 dark:text-gray-300">100% Lengkap</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-4 h-4 bg-yellow-500 rounded"></div>
+                                    <span class="text-gray-700 dark:text-gray-300">80-99% Hampir Lengkap</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-4 h-4 bg-orange-500 rounded"></div>
+                                    <span class="text-gray-700 dark:text-gray-300">50-79% Sebagian</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-4 h-4 bg-red-500 rounded"></div>
+                                    <span class="text-gray-700 dark:text-gray-300">1-49% Sedikit</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-4 h-4 bg-gray-300 rounded"></div>
+                                    <span class="text-gray-700 dark:text-gray-300">0% Tidak Ada</span>
+                                </div>
+                            </div>
+
+                            <div v-if="mySantri.length === 0" class="text-center py-12">
+                                <div class="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-user-graduate text-2xl text-gray-400"></i>
+                                </div>
+                                <h4 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Belum Ada Santri</h4>
+                                <p class="text-gray-600 dark:text-gray-400">Anda belum memiliki santri binaan.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin Ibadah Recap - Card Style -->
+                    <div v-if="activeTab === 'ibadah-recap'" class="space-y-6">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                <i class="fas fa-pray mr-3 text-emerald-500"></i>
+                                Rekap Ibadah Harian Santri
+                            </h2>
+
+                            <!-- Filter -->
+                            <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Bulan</label>
+                                    <select v-model="ibadahFilter.month" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option v-for="month in getAvailableMonths()" :key="month.value" :value="month.value">
+                                            {{ month.label }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Angkatan</label>
+                                    <select v-model="ibadahFilter.angkatan" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option value="">Semua Angkatan</option>
+                                        <option v-for="angkatan in getActiveAngkatanList()" :key="angkatan" :value="angkatan">
+                                            Angkatan {{ angkatan }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter Musyrif</label>
+                                    <select v-model="ibadahFilter.musyrif" 
+                                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                                        <option value="">Semua Musyrif</option>
+                                        <option v-for="musyrif in musyrifList" :key="musyrif.id" :value="musyrif.id">
+                                            {{ musyrif.name }}
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Summary Cards -->
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                                <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 text-center">
+                                    <div class="text-2xl font-bold text-green-600 dark:text-green-400">{{ getMonthlyIbadahSummary().averageCompletion }}%</div>
+                                    <div class="text-sm text-green-600 dark:text-green-400">Rata-rata Bulan Ini</div>
+                                </div>
+                                <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
+                                    <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{ getMonthlyIbadahSummary().totalDays }}</div>
+                                    <div class="text-sm text-blue-600 dark:text-blue-400">Total Hari</div>
+                                </div>
+                                <div class="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 text-center">
+                                    <div class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{ getMonthlyIbadahSummary().bestPerformer.name }}</div>
+                                    <div class="text-sm text-purple-600 dark:text-purple-400">Terbaik</div>
+                                </div>
+                                <div class="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4 text-center">
+                                    <div class="text-2xl font-bold text-orange-600 dark:text-orange-400">{{ getMonthlyIbadahSummary().completeDays }}</div>
+                                    <div class="text-sm text-orange-600 dark:text-orange-400">Hari Lengkap</div>
+                                </div>
+                            </div>
+
+                            <!-- Santri Cards -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <div v-for="santri in filteredSantriForIbadah" :key="santri.id" 
+                                     class="bg-gradient-to-br from-white to-gray-50 dark:from-gray-700 dark:to-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-600 hover:shadow-lg transition-all duration-200">
+                                    
+                                    <!-- Santri Header -->
+                                    <div class="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h3 class="text-lg font-bold text-gray-900 dark:text-white">{{ santri.name }}</h3>
+                                            <div class="flex items-center space-x-2 mt-1">
+                                                <span :class="`angkatan-${santri.angkatan}`" class="px-2 py-1 rounded-full text-xs font-medium text-white">
+                                                    Angkatan {{ santri.angkatan }}
+                                                </span>
+                                                <span class="text-sm text-gray-600 dark:text-gray-400">
+                                                    {{ getMusyrifName(santri.musyrifId) }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="text-right">
+                                            <div class="text-2xl font-bold" :class="getMonthlyIbadahAverage(santri.id) >= 80 ? 'text-green-600' : getMonthlyIbadahAverage(santri.id) >= 60 ? 'text-yellow-600' : 'text-red-600'">
+                                                {{ getMonthlyIbadahAverage(santri.id) }}%
+                                            </div>
+                                            <div class="text-xs text-gray-500 dark:text-gray-400">Selesai</div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Progress Bar -->
+                                    <div class="mb-4">
+                                        <div class="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                            <div class="h-2 rounded-full transition-all duration-500" 
+                                                 :class="getMonthlyIbadahAverage(santri.id) >= 80 ? 'bg-green-500' : getMonthlyIbadahAverage(santri.id) >= 60 ? 'bg-yellow-500' : 'bg-red-500'"
+                                                 :style="`width: ${getMonthlyIbadahAverage(santri.id)}%`"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Ibadah Grid -->
+                                    <div class="grid grid-cols-2 gap-2 mb-4">
+                                        <div v-for="ibadah in ibadahList.slice(0, 10)" :key="ibadah.key" 
+                                             class="flex items-center space-x-2 text-xs">
+                                            <i :class="ibadah.icon" class="text-sm" :class="ibadah.color"></i>
+                                            <span class="text-gray-700 dark:text-gray-300">{{ ibadah.name }}</span>
+                                            <div class="ml-auto">
+                                                <div class="w-4 h-4 rounded-full" 
+                                                     :class="getMonthlyIbadahCompletionForType(santri.id, ibadah.key) >= 80 ? 'bg-green-500' : 
+                                                            getMonthlyIbadahCompletionForType(santri.id, ibadah.key) >= 60 ? 'bg-yellow-500' : 
+                                                            getMonthlyIbadahCompletionForType(santri.id, ibadah.key) > 0 ? 'bg-red-500' : 'bg-gray-300'"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Monthly Stats -->
+                                    <div class="pt-4 border-t border-gray-200 dark:border-gray-600">
+                                        <div class="grid grid-cols-3 gap-4 text-center">
+                                            <div>
+                                                <div class="text-lg font-bold text-green-600 dark:text-green-400">
+                                                    {{ getMonthlyCompleteDays(santri.id) }}
+                                                </div>
+                                                <div class="text-xs text-gray-500 dark:text-gray-400">Hari Lengkap</div>
+                                            </div>
+                                            <div>
+                                                <div class="text-lg font-bold text-orange-600 dark:text-orange-400">
+                                                    {{ getMonthlyPartialDays(santri.id) }}
+                                                </div>
+                                                <div class="text-xs text-gray-500 dark:text-gray-400">Sebagian</div>
+                                            </div>
+                                            <div>
+                                                <div class="text-lg font-bold text-red-600 dark:text-red-400">
+                                                    {{ getMonthlyIncompleteDays(santri.id) }}
+                                                </div>
+                                                <div class="text-xs text-gray-500 dark:text-gray-400">Belum Lengkap</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="filteredSantriForIbadah.length === 0" class="text-center py-12">
+                                <div class="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-pray text-2xl text-gray-400"></i>
+                                </div>
+                                <h4 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Tidak Ada Data</h4>
+                                <p class="text-gray-600 dark:text-gray-400">Tidak ada santri yang sesuai dengan filter.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto-save indicator -->
+    <transition name="fade">
+        <div v-if="autoSaving" class="fixed bottom-4 left-4 bg-emerald-500 text-white px-4 py-2 rounded-lg shadow-lg">
+            <i class="fas fa-sync-alt animate-spin mr-2"></i>
+            Menyimpan...
+        </div>
+    </transition>
+
+    <script>
+        const { createApp, ref, computed, onMounted, watch, reactive, nextTick } = Vue;
+
+        const app = createApp({
+            setup() {
+                // Core state
+                const loading = ref(true);
+                const isLoggedIn = ref(false);
+                const isAdmin = ref(false);
+                const isMusyrif = ref(false);
+                const isPublicAccess = ref(false);
+                const currentUser = ref(null);
+                const activeTab = ref('admin-dashboard');
+                const darkMode = ref(false);
+                const autoSaving = ref(false);
+                const isSubmitting = ref(false);
+                const isLoggingIn = ref(false);
+                const loginError = ref('');
+
+                // UI state
+                const showSantriModal = ref(false);
+                const showMusyrifModal = ref(false);
+                const editingSantri = ref(null);
+                const editingMusyrif = ref(null);
+                const expandedDates = ref({});
+
+                // Forms
+                const credentials = reactive({
+                    username: '',
+                    password: ''
+                });
+
+                const santriForm = reactive({
+                    name: '',
+                    angkatan: '',
+                    musyrifId: ''
+                });
+
+                const musyrifForm = reactive({
+                    name: '',
+                    username: '',
+                    password: ''
+                });
+
+                // Filters
+                const santriFilter = reactive({
+                    angkatan: '',
+                    musyrif: '',
+                    search: ''
+                });
+
+                const tahfizhFilter = reactive({
+                    angkatan: '',
+                    musyrif: '',
+                    sort: 'progress',
+                    month: getCurrentMonth()
+                });
+
+                const ibadahFilter = reactive({
+                    month: getCurrentMonth(),
+                    angkatan: '',
+                    musyrif: ''
+                });
+
+                // Data
+                const musyrifList = ref([
+                    { id: 'mus-1', name: 'Ustadz Ahmad', username: 'ahmad', password: 'ahmad123' },
+                    { id: 'mus-2', name: 'Ustadz Yusuf', username: 'yusuf', password: 'yusuf123' },
+                    { id: 'mus-3', name: 'Ustadz Ibrahim', username: 'ibrahim', password: 'ibrahim123' }
+                ]);
+
+                const santriList = ref([
+                    { id: 'santri-1', name: 'Umar Faruq', angkatan: 12, musyrifId: 'mus-1' },
+                    { id: 'santri-2', name: 'Uthman Affan', angkatan: 12, musyrifId: 'mus-2' },
+                    { id: 'santri-3', name: 'Abu Bakar', angkatan: 13, musyrifId: 'mus-2' },
+                    { id: 'santri-4', name: 'Khalid Walid', angkatan: 13, musyrifId: 'mus-3' },
+                    { id: 'santri-5', name: 'Abdullah Zubair', angkatan: 14, musyrifId: 'mus-1' },
+                    { id: 'santri-6', name: 'Saad Waqqas', angkatan: 14, musyrifId: 'mus-3' },
+                    { id: 'santri-7', name: 'Ahmad Zaki', angkatan: 15, musyrifId: 'mus-2' },
+                    { id: 'santri-8', name: 'Muhammad Fatih', angkatan: 15, musyrifId: 'mus-1' }
+                ]);
+
+                const adminUsers = ref([
+                    { id: 'admin-1', username: 'admin', password: 'admin123', name: 'Administrator', role: 'admin' }
+                ]);
+
+                const notifications = ref([]);
+
+                // Progress data
+                const tahfizhProgress = ref({});
+                const ibadahProgress = ref({});
+                const tahfizhInput = ref({});
+                const ibadahInput = ref({});
+
+                // Ibadah list
+                const ibadahList = ref([
+                    { key: 'subuh', name: 'Subuh', icon: 'fas fa-sun', color: 'text-yellow-500' },
+                    { key: 'dzuhur', name: 'Dzuhur', icon: 'fas fa-sun', color: 'text-orange-500' },
+                    { key: 'ashar', name: 'Ashar', icon: 'fas fa-sun', color: 'text-amber-500' },
+                    { key: 'maghrib', name: 'Maghrib', icon: 'fas fa-moon', color: 'text-purple-500' },
+                    { key: 'isya', name: 'Isya', icon: 'fas fa-moon', color: 'text-indigo-500' },
+                    { key: 'tahajud', name: 'Tahajud', icon: 'fas fa-star', color: 'text-blue-500' },
+                    { key: 'duha', name: 'Duha', icon: 'fas fa-sun', color: 'text-green-500' },
+                    { key: 'tilawah', name: 'Tilawah', icon: 'fas fa-book-quran', color: 'text-emerald-500' },
+                    { key: 'dzikir', name: 'Dzikir', icon: 'fas fa-hands', color: 'text-teal-500' },
+                    { key: 'sedekah', name: 'Sedekah', icon: 'fas fa-hand-holding-heart', color: 'text-pink-500' }
+                ]);
+
+                // Helper functions
+                function getJakartaDate() {
+                    const now = new Date();
+                    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+                    return new Date(utc + (7 * 3600000)); // UTC+7 Jakarta
+                }
+
+                function getCurrentDate() {
+                    return getJakartaDate().toISOString().split('T')[0];
+                }
+
+                function getCurrentMonth() {
+                    return getJakartaDate().toISOString().split('T')[0].substring(0, 7);
+                }
+
+                function getAvailableMonths() {
+                    const months = [];
+                    const startDate = new Date('2025-07-01'); // Mulai dari Juli 2025
+                    const currentDate = getJakartaDate();
+                    
+                    let date = new Date(startDate);
+                    while (date <= currentDate) {
+                        const yearMonth = date.toISOString().split('T')[0].substring(0, 7);
+                        months.push({
+                            value: yearMonth,
+                            label: date.toLocaleDateString('id-ID', { 
+                                year: 'numeric', 
+                                month: 'long' 
+                            })
+                        });
+                        date.setMonth(date.getMonth() + 1);
+                    }
+                    
+                    return months.reverse(); // Terbaru di atas
+                }
+
+                function getDaysInMonth(yearMonth) {
+                    const [year, month] = yearMonth.split('-');
+                    const date = new Date(year, month, 0);
+                    return date.getDate();
+                }
+
+                function getDateRange(yearMonth) {
+                    const [year, month] = yearMonth.split('-');
+                    const daysInMonth = getDaysInMonth(yearMonth);
+                    const dates = [];
+                    
+                    for (let day = 1; day <= daysInMonth; day++) {
+                        const dateStr = `${year}-${month.padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+                        dates.push(dateStr);
+                    }
+                    
+                    return dates;
+                }
+
+                const getCurrentDateString = () => {
+                    const jakarta = getJakartaDate();
+                    return jakarta.toLocaleDateString('id-ID', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    });
+                };
+
+                const formatDate = (dateString) => {
+                    const date = new Date(dateString + 'T00:00:00.000Z');
+                    return date.toLocaleDateString('id-ID', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    });
+                };
+
+                const formatDateShort = (dateString) => {
+                    const date = new Date(dateString + 'T00:00:00.000Z');
+                    return date.toLocaleDateString('id-ID', {
+                        day: '2-digit',
+                        month: 'short'
+                    });
+                };
+
+                const formatDayName = (dateString) => {
+                    const date = new Date(dateString + 'T00:00:00.000Z');
+                    return date.toLocaleDateString('id-ID', {
+                        weekday: 'short'
+                    });
+                };
+
+                // Computed properties
+                const totalSantri = computed(() => santriList.value.length);
+                const totalMusyrif = computed(() => musyrifList.value.length);
+
+                const averageProgress = computed(() => {
+                    if (santriList.value.length === 0) return 0;
+                    const total = santriList.value.reduce((sum, santri) => sum + getSantriProgress(santri.id), 0);
+                    return Math.round(total / santriList.value.length);
+                });
+
+                const todayIbadahCompletion = computed(() => {
+                    const today = getCurrentDate();
+                    let totalCompletion = 0;
+                    let count = 0;
+                    
+                    santriList.value.forEach(santri => {
+                        const completion = getIbadahCompletion(santri.id, today);
+                        totalCompletion += completion;
+                        count++;
+                    });
+                    
+                    return count > 0 ? Math.round(totalCompletion / count) : 0;
+                });
+
+                const availableMonths = computed(() => getAvailableMonths());
+
+                const mySantri = computed(() => {
+                    if (!currentUser.value || !isMusyrif.value) return [];
+                    return santriList.value.filter(santri => santri.musyrifId === currentUser.value.id);
+                });
+
+                const filteredSantri = computed(() => {
+                    let filtered = santriList.value;
+                    
+                    if (santriFilter.angkatan) {
+                        filtered = filtered.filter(santri => santri.angkatan === parseInt(santriFilter.angkatan));
+                    }
+                    
+                    if (santriFilter.musyrif) {
+                        filtered = filtered.filter(santri => santri.musyrifId === santriFilter.musyrif);
+                    }
+                    
+                    if (santriFilter.search) {
+                        filtered = filtered.filter(santri => 
+                            santri.name.toLowerCase().includes(santriFilter.search.toLowerCase())
+                        );
+                    }
+                    
+                    return filtered;
+                });
+
+                const filteredSantriForRecap = computed(() => {
+                    let filtered = santriList.value;
+                    
+                    if (tahfizhFilter.angkatan) {
+                        filtered = filtered.filter(santri => santri.angkatan === parseInt(tahfizhFilter.angkatan));
+                    }
+                    
+                    if (tahfizhFilter.musyrif) {
+                        filtered = filtered.filter(santri => santri.musyrifId === tahfizhFilter.musyrif);
+                    }
+                    
+                    // Sort
+                    switch (tahfizhFilter.sort) {
+                        case 'progress':
+                            filtered.sort((a, b) => getSantriProgress(b.id) - getSantriProgress(a.id));
+                            break;
+                        case 'name':
+                            filtered.sort((a, b) => a.name.localeCompare(b.name));
+                            break;
+                        case 'angkatan':
+                            filtered.sort((a, b) => a.angkatan - b.angkatan);
+                            break;
+                    }
+                    
+                    return filtered;
+                });
+
+                const filteredSantriForIbadah = computed(() => {
+                    let filtered = santriList.value;
+                    
+                    if (ibadahFilter.angkatan) {
+                        filtered = filtered.filter(santri => santri.angkatan === parseInt(ibadahFilter.angkatan));
+                    }
+                    
+                    if (ibadahFilter.musyrif) {
+                        filtered = filtered.filter(santri => santri.musyrifId === ibadahFilter.musyrif);
+                    }
+                    
+                    return filtered;
+                });
+
+                const isSantriFormValid = computed(() => {
+                    return santriForm.name.trim() && santriForm.angkatan && santriForm.musyrifId;
+                });
+
+                const isMusyrifFormValid = computed(() => {
+                    if (!musyrifForm.name.trim() || !musyrifForm.username.trim()) return false;
+                    if (!editingMusyrif.value && !musyrifForm.password.trim()) return false;
+                    if (!editingMusyrif.value) {
+                        const existing = musyrifList.value.find(m => m.username === musyrifForm.username.trim());
+                        if (existing) return false;
+                    }
+                    return true;
+                });
+
+                // Methods
+                const toggleDarkMode = () => {
+                    darkMode.value = !darkMode.value;
+                    
+                    if (darkMode.value) {
+                        document.documentElement.classList.add('dark');
+                    } else {
+                        document.documentElement.classList.remove('dark');
+                    }
+                };
+
+                const showNotification = (message, type = 'info', duration = 5000) => {
+                    const id = Date.now() + Math.random();
+                    const notification = { id, message, type };
+                    
+                    notifications.value.push(notification);
+                    
+                    if (duration > 0) {
+                        setTimeout(() => removeNotification(id), duration);
+                    }
+                    
+                    return id;
+                };
+
+                const removeNotification = (id) => {
+                    const index = notifications.value.findIndex(n => n.id === id);
+                    if (index > -1) {
+                        notifications.value.splice(index, 1);
+                    }
+                };
+
+                const getNotificationClass = (type) => {
+                    const classes = {
+                        'success': 'bg-green-500 text-white',
+                        'error': 'bg-red-500 text-white',
+                        'info': 'bg-blue-500 text-white',
+                        'warning': 'bg-yellow-500 text-white'
+                    };
+                    return classes[type] || classes.info;
+                };
+
+                const getNotificationIcon = (type) => {
+                    const icons = {
+                        'success': 'fas fa-check-circle',
+                        'error': 'fas fa-exclamation-circle',
+                        'info': 'fas fa-info-circle',
+                        'warning': 'fas fa-exclamation-triangle'
+                    };
+                    return icons[type] || icons.info;
+                };
+
+                // Authentication
+                const login = async () => {
+                    loginError.value = '';
+                    
+                    // Check admin
+                    const admin = adminUsers.value.find(user => 
+                        user.username === credentials.username && 
+                        user.password === credentials.password
+                    );
+                    
+                    if (admin) {
+                        isLoggingIn.value = true;
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        currentUser.value = admin;
+                        isAdmin.value = true;
+                        isMusyrif.value = false;
+                        isLoggedIn.value = true;
+                        isLoggingIn.value = false;
+                        activeTab.value = 'admin-dashboard';
+                        return;
+                    }
+                    
+                    // Check musyrif
+                    const musyrif = musyrifList.value.find(user => 
+                        user.username === credentials.username && 
+                        user.password === credentials.password
+                    );
+                    
+                    if (musyrif) {
+                        isLoggingIn.value = true;
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        currentUser.value = musyrif;
+                        isAdmin.value = false;
+                        isMusyrif.value = true;
+                        isLoggedIn.value = true;
+                        isLoggingIn.value = false;
+                        activeTab.value = 'tahfizh-input';
+                        return;
+                    }
+                    
+                    loginError.value = 'Username atau password salah';
+                };
+
+                const logout = () => {
+                    isLoggedIn.value = false;
+                    isAdmin.value = false;
+                    isMusyrif.value = false;
+                    isPublicAccess.value = false;
+                    currentUser.value = null;
+                    credentials.username = '';
+                    credentials.password = '';
+                    activeTab.value = 'admin-dashboard';
+                    loginError.value = '';
+                };
+
+                const accessPublic = () => {
+                    isPublicAccess.value = true;
+                    isLoggedIn.value = false;
+                };
+
+                const backToLogin = () => {
+                    isPublicAccess.value = false;
+                };
+
+                // Santri Management
+                const openSantriModal = (santri = null) => {
+                    editingSantri.value = santri;
+                    if (santri) {
+                        santriForm.name = santri.name;
+                        santriForm.angkatan = santri.angkatan;
+                        santriForm.musyrifId = santri.musyrifId;
+                    } else {
+                        Object.assign(santriForm, {
+                            name: '',
+                            angkatan: '',
+                            musyrifId: ''
+                        });
+                    }
+                    showSantriModal.value = true;
+                };
+
+                const closeSantriModal = () => {
+                    showSantriModal.value = false;
+                    editingSantri.value = null;
+                    Object.assign(santriForm, {
+                        name: '',
+                        angkatan: '',
+                        musyrifId: ''
+                    });
+                };
+
+                const saveSantri = async () => {
+                    if (!isSantriFormValid.value) {
+                        showNotification('Lengkapi semua field yang diperlukan', 'error');
+                        return;
+                    }
+
+                    isSubmitting.value = true;
+
+                    try {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
+                        if (editingSantri.value) {
+                            const index = santriList.value.findIndex(s => s.id === editingSantri.value.id);
+                            if (index !== -1) {
+                                santriList.value[index] = {
+                                    ...santriList.value[index],
+                                    name: santriForm.name.trim(),
+                                    angkatan: santriForm.angkatan,
+                                    musyrifId: santriForm.musyrifId
+                                };
+                            }
+                            showNotification('Data santri berhasil diupdate', 'success');
+                        } else {
+                            const newSantri = {
+                                id: 'santri-' + Date.now(),
+                                name: santriForm.name.trim(),
+                                angkatan: santriForm.angkatan,
+                                musyrifId: santriForm.musyrifId
+                            };
+                            
+                            santriList.value.push(newSantri);
+                            showNotification('Santri baru berhasil ditambahkan', 'success');
+                        }
+
+                        autoSave();
+                        closeSantriModal();
+                        
+                    } catch (error) {
+                        console.error('Error saving santri:', error);
+                        showNotification('Gagal menyimpan data santri', 'error');
+                    } finally {
+                        isSubmitting.value = false;
+                    }
+                };
+
+                const editSantri = (santri) => {
+                    openSantriModal(santri);
+                };
+
+                const deleteSantri = (santriId) => {
+                    if (confirm('Apakah Anda yakin ingin menghapus santri ini?')) {
+                        const index = santriList.value.findIndex(s => s.id === santriId);
+                        if (index !== -1) {
+                            santriList.value.splice(index, 1);
+                            // Also delete progress data
+                            delete tahfizhProgress.value[santriId];
+                            delete ibadahProgress.value[santriId];
+                            autoSave();
+                            showNotification('Santri berhasil dihapus', 'success');
+                        }
+                    }
+                };
+
+                // Musyrif Management
+                const openMusyrifModal = (musyrif = null) => {
+                    editingMusyrif.value = musyrif;
+                    if (musyrif) {
+                        musyrifForm.name = musyrif.name;
+                        musyrifForm.username = musyrif.username;
+                        musyrifForm.password = '';
+                    } else {
+                        Object.assign(musyrifForm, {
+                            name: '',
+                            username: '',
+                            password: ''
+                        });
+                    }
+                    showMusyrifModal.value = true;
+                };
+
+                const closeMusyrifModal = () => {
+                    showMusyrifModal.value = false;
+                    editingMusyrif.value = null;
+                    Object.assign(musyrifForm, {
+                        name: '',
+                        username: '',
+                        password: ''
+                    });
+                };
+
+                const saveMusyrif = async () => {
+                    if (!isMusyrifFormValid.value) {
+                        showNotification('Lengkapi form dengan benar', 'error');
+                        return;
+                    }
+
+                    isSubmitting.value = true;
+
+                    try {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
+                        if (editingMusyrif.value) {
+                            const index = musyrifList.value.findIndex(m => m.id === editingMusyrif.value.id);
+                            if (index !== -1) {
+                                musyrifList.value[index] = {
+                                    ...musyrifList.value[index],
+                                    name: musyrifForm.name.trim()
+                                };
+
+                                if (musyrifForm.password.trim()) {
+                                    musyrifList.value[index].password = musyrifForm.password.trim();
+                                }
+                            }
+                            showNotification('Data musyrif berhasil diupdate', 'success');
+                        } else {
+                            const newMusyrif = {
+                                id: 'mus-' + Date.now(),
+                                name: musyrifForm.name.trim(),
+                                username: musyrifForm.username.trim(),
+                                password: musyrifForm.password.trim()
+                            };
+                            
+                            musyrifList.value.push(newMusyrif);
+                            showNotification('Musyrif baru berhasil ditambahkan', 'success');
+                        }
+
+                        autoSave();
+                        closeMusyrifModal();
+                        
+                    } catch (error) {
+                        console.error('Error saving musyrif:', error);
+                        showNotification('Gagal menyimpan data musyrif', 'error');
+                    } finally {
+                        isSubmitting.value = false;
+                    }
+                };
+
+                const editMusyrif = (musyrif) => {
+                    openMusyrifModal(musyrif);
+                };
+
+                const deleteMusyrif = (musyrifId) => {
+                    if (confirm('Apakah Anda yakin ingin menghapus musyrif ini?')) {
+                        const index = musyrifList.value.findIndex(m => m.id === musyrifId);
+                        if (index !== -1) {
+                            musyrifList.value.splice(index, 1);
+                            autoSave();
+                            showNotification('Musyrif berhasil dihapus', 'success');
+                        }
+                    }
+                };
+
+                // Helper functions
+                const getMusyrifName = (musyrifId) => {
+                    const musyrif = musyrifList.value.find(m => m.id === musyrifId);
+                    return musyrif ? musyrif.name : 'Unknown';
+                };
+
+                const getSantriByMusyrif = (musyrifId) => {
+                    return santriList.value.filter(santri => santri.musyrifId === musyrifId);
+                };
+
+                const getActiveAngkatanList = () => {
+                    const angkatanSet = new Set();
+                    santriList.value.forEach(santri => {
+                        angkatanSet.add(santri.angkatan);
+                    });
+                    return Array.from(angkatanSet).sort((a, b) => a - b);
+                };
+
+                const getAngkatanCount = (angkatan) => {
+                    return santriList.value.filter(santri => santri.angkatan === angkatan).length;
+                };
+
+                const getAngkatanAverageProgress = (angkatan) => {
+                    const santriAngkatan = santriList.value.filter(santri => santri.angkatan === angkatan);
+                    if (santriAngkatan.length === 0) return 0;
+                    const total = santriAngkatan.reduce((sum, santri) => sum + getSantriProgress(santri.id), 0);
+                    return Math.round(total / santriAngkatan.length);
+                };
+
+                // Progress functions
+                const getSantriProgress = (santriId) => {
+                    const progress = tahfizhProgress.value[santriId];
+                    if (!progress) return 0;
+                    
+                    let maxPage = 0;
+                    Object.values(progress).forEach(dayProgress => {
+                        if (dayProgress.endPage > maxPage) {
+                            maxPage = dayProgress.endPage;
+                        }
+                    });
+                    
+                    return maxPage;
+                };
+
+                // Murojaah functions
+                const getMonthlyMurojaah = (santriId) => {
+                    const progress = tahfizhProgress.value[santriId];
+                    if (!progress) return 0;
+                    
+                    const juzSet = new Set();
+                    const dates = getDateRange(tahfizhFilter.month);
+                    
+                    dates.forEach(date => {
+                        const dayProgress = progress[date];
+                        if (dayProgress && dayProgress.murojaah) {
+                            juzSet.add(dayProgress.murojaah);
+                        }
+                    });
+                    
+                    return juzSet.size;
+                };
+
+                const initializeTahfizhInput = () => {
+                    mySantri.value.forEach(santri => {
+                        if (!tahfizhInput.value[santri.id]) {
+                            tahfizhInput.value[santri.id] = {
+                                startPage: '',
+                                endPage: '',
+                                murojaah: '',
+                                exam: ''
+                            };
+                        }
+                    });
+                };
+
+                const initializeIbadahInput = () => {
+                    mySantri.value.forEach(santri => {
+                        if (!ibadahInput.value[santri.id]) {
+                            ibadahInput.value[santri.id] = {};
+                            ibadahList.value.forEach(ibadah => {
+                                ibadahInput.value[santri.id][ibadah.key] = false;
+                            });
+                        }
+                    });
+                };
+
+                const canSaveTahfizh = (santriId) => {
+                    const input = tahfizhInput.value[santriId];
+                    return input && input.startPage && input.endPage && 
+                           parseInt(input.startPage) <= parseInt(input.endPage);
+                };
+
+                const saveTahfizhProgress = (santriId) => {
+                    const input = tahfizhInput.value[santriId];
+                    const today = getCurrentDate();
+                    
+                    if (!tahfizhProgress.value[santriId]) {
+                        tahfizhProgress.value[santriId] = {};
+                    }
+                    
+                    tahfizhProgress.value[santriId][today] = {
+                        date: today,
+                        startPage: parseInt(input.startPage),
+                        endPage: parseInt(input.endPage),
+                        murojaah: input.murojaah || null,
+                        exam: input.exam.trim() || null,
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    // Reset form
+                    tahfizhInput.value[santriId] = {
+                        startPage: '',
+                        endPage: '',
+                        murojaah: '',
+                        exam: ''
+                    };
+                    
+                    autoSave();
+                    showNotification('Progress tahfizh berhasil disimpan', 'success');
+                };
+
+                const getTodayTahfizhProgress = (santriId) => {
+                    const today = getCurrentDate();
+                    return tahfizhProgress.value[santriId]?.[today];
+                };
+
+                // Ibadah functions
+                const toggleDateExpansion = (santriId, date) => {
+                    const key = santriId + '-' + date;
+                    expandedDates.value[key] = !expandedDates.value[key];
+                };
+
+                const updateIbadahStatus = (santriId, ibadahKey, date, value) => {
+                    if (!ibadahProgress.value[santriId]) {
+                        ibadahProgress.value[santriId] = {};
+                    }
+                    
+                    if (!ibadahProgress.value[santriId][date]) {
+                        ibadahProgress.value[santriId][date] = {
+                            date: date,
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        // Initialize all ibadah for this date
+                        ibadahList.value.forEach(ibadah => {
+                            ibadahProgress.value[santriId][date][ibadah.key] = false;
+                        });
+                    }
+                    
+                    ibadahProgress.value[santriId][date][ibadahKey] = value;
+                    ibadahProgress.value[santriId][date].timestamp = new Date().toISOString();
+                    
+                    autoSave();
+                };
+
+                const getMonthlyIbadahAverage = (santriId) => {
+                    const dates = getDateRange(ibadahFilter.month);
+                    let totalCompletion = 0;
+                    let validDays = 0;
+                    
+                    dates.forEach(date => {
+                        const currentDate = getCurrentDate();
+                        if (date <= currentDate) { // Only count days that have passed
+                            totalCompletion += getIbadahCompletion(santriId, date);
+                            validDays++;
+                        }
+                    });
+                    
+                    return validDays > 0 ? Math.round(totalCompletion / validDays) : 0;
+                };
+
+                const getMonthlyIbadahSummary = () => {
+                    const dates = getDateRange(ibadahFilter.month);
+                    const currentDate = getCurrentDate();
+                    const validDates = dates.filter(date => date <= currentDate);
+                    
+                    let totalCompletion = 0;
+                    let completeDays = 0;
+                    let totalSantri = filteredSantriForIbadah.value.length;
+                    let bestPerformer = { name: '-', score: 0 };
+                    
+                    filteredSantriForIbadah.value.forEach(santri => {
+                        const monthlyAvg = getMonthlyIbadahAverage(santri.id);
+                        totalCompletion += monthlyAvg;
+                        
+                        if (monthlyAvg > bestPerformer.score) {
+                            bestPerformer = { name: santri.name, score: monthlyAvg };
+                        }
+                        
+                        // Count complete days (100%)
+                        validDates.forEach(date => {
+                            if (getIbadahCompletion(santri.id, date) === 100) {
+                                completeDays++;
+                            }
+                        });
+                    });
+                    
+                    return {
+                        averageCompletion: totalSantri > 0 ? Math.round(totalCompletion / totalSantri) : 0,
+                        totalDays: validDates.length,
+                        completeDays,
+                        bestPerformer
+                    };
+                };
+
+                const getIbadahCompletion = (santriId, date) => {
+                    const dayIbadah = ibadahProgress.value[santriId]?.[date];
+                    if (!dayIbadah) return 0;
+                    
+                    let completed = 0;
+                    ibadahList.value.forEach(ibadah => {
+                        if (dayIbadah[ibadah.key]) completed++;
+                    });
+                    
+                    return Math.round((completed / ibadahList.value.length) * 100);
+                };
+
+                const isIbadahCompleted = (santriId, ibadahKey, date) => {
+                    return ibadahProgress.value[santriId]?.[date]?.[ibadahKey] || false;
+                };
+
+                const getMonthlyIbadahCompletionForType = (santriId, ibadahKey) => {
+                    const dates = getDateRange(ibadahFilter.month);
+                    const currentDate = getCurrentDate();
+                    const validDates = dates.filter(date => date <= currentDate);
+                    
+                    let completed = 0;
+                    validDates.forEach(date => {
+                        if (isIbadahCompleted(santriId, ibadahKey, date)) {
+                            completed++;
+                        }
+                    });
+                    
+                    return validDates.length > 0 ? Math.round((completed / validDates.length) * 100) : 0;
+                };
+
+                const getMonthlyCompleteDays = (santriId) => {
+                    const dates = getDateRange(ibadahFilter.month);
+                    const currentDate = getCurrentDate();
+                    const validDates = dates.filter(date => date <= currentDate);
+                    
+                    let completeDays = 0;
+                    validDates.forEach(date => {
+                        if (getIbadahCompletion(santriId, date) === 100) {
+                            completeDays++;
+                        }
+                    });
+                    
+                    return completeDays;
+                };
+
+                const getMonthlyPartialDays = (santriId) => {
+                    const dates = getDateRange(ibadahFilter.month);
+                    const currentDate = getCurrentDate();
+                    const validDates = dates.filter(date => date <= currentDate);
+                    
+                    let partialDays = 0;
+                    validDates.forEach(date => {
+                        const completion = getIbadahCompletion(santriId, date);
+                        if (completion > 0 && completion < 100) {
+                            partialDays++;
+                        }
+                    });
+                    
+                    return partialDays;
+                };
+
+                const getMonthlyIncompleteDays = (santriId) => {
+                    const dates = getDateRange(ibadahFilter.month);
+                    const currentDate = getCurrentDate();
+                    const validDates = dates.filter(date => date <= currentDate);
+                    
+                    let incompleteDays = 0;
+                    validDates.forEach(date => {
+                        if (getIbadahCompletion(santriId, date) === 0) {
+                            incompleteDays++;
+                        }
+                    });
+                    
+                    return incompleteDays;
+                };
+
+                // Storage
+                const loadFromStorage = () => {
+                    try {
+                        const savedMusyrif = localStorage.getItem('musyrifList');
+                        if (savedMusyrif) {
+                            musyrifList.value = JSON.parse(savedMusyrif);
+                        }
+
+                        const savedSantri = localStorage.getItem('santriList');
+                        if (savedSantri) {
+                            santriList.value = JSON.parse(savedSantri);
+                        }
+
+                        const savedTahfizh = localStorage.getItem('tahfizhProgress');
+                        if (savedTahfizh) {
+                            tahfizhProgress.value = JSON.parse(savedTahfizh);
+                        }
+
+                        const savedIbadah = localStorage.getItem('ibadahProgress');
+                        if (savedIbadah) {
+                            ibadahProgress.value = JSON.parse(savedIbadah);
+                        }
+
+                        const savedDarkMode = localStorage.getItem('darkMode');
+                        if (savedDarkMode !== null) {
+                            darkMode.value = savedDarkMode === 'true';
+                            if (darkMode.value) {
+                                document.documentElement.classList.add('dark');
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error loading from storage:', error);
+                    }
+                };
+
+                const saveToStorage = () => {
+                    try {
+                        localStorage.setItem('musyrifList', JSON.stringify(musyrifList.value));
+                        localStorage.setItem('santriList', JSON.stringify(santriList.value));
+                        localStorage.setItem('tahfizhProgress', JSON.stringify(tahfizhProgress.value));
+                        localStorage.setItem('ibadahProgress', JSON.stringify(ibadahProgress.value));
+                        localStorage.setItem('darkMode', darkMode.value);
+                    } catch (error) {
+                        console.error('Error saving to storage:', error);
+                    }
+                };
+
+                const autoSave = async () => {
+                    autoSaving.value = true;
+                    saveToStorage();
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    autoSaving.value = false;
+                };
+
+                // Watchers
+                watch(mySantri, () => {
+                    if (isMusyrif.value) {
+                        initializeTahfizhInput();
+                        initializeIbadahInput();
+                    }
+                }, { immediate: true });
+
+                // Lifecycle
+                onMounted(async () => {
+                    loadFromStorage();
+                    
+                    // Auto-save interval
+                    setInterval(() => {
+                        if (isLoggedIn.value || isPublicAccess.value) {
+                            saveToStorage();
+                        }
+                    }, 30000);
+                    
+                    setTimeout(() => {
+                        loading.value = false;
+                    }, 1500);
+                });
+
+                return {
+                    // Core state
+                    loading,
+                    isLoggedIn,
+                    isAdmin,
+                    isMusyrif,
+                    isPublicAccess,
+                    currentUser,
+                    activeTab,
+                    darkMode,
+                    autoSaving,
+                    isSubmitting,
+                    isLoggingIn,
+                    loginError,
+                    
+                    // UI state
+                    showSantriModal,
+                    showMusyrifModal,
+                    editingSantri,
+                    editingMusyrif,
+                    expandedDates,
+                    
+                    // Forms
+                    credentials,
+                    santriForm,
+                    musyrifForm,
+                    santriFilter,
+                    tahfizhFilter,
+                    ibadahFilter,
+                    
+                    // Data
+                    musyrifList,
+                    santriList,
+                    ibadahList,
+                    notifications,
+                    tahfizhInput,
+                    ibadahInput,
+                    
+                    // Computed
+                    totalSantri,
+                    totalMusyrif,
+                    averageProgress,
+                    todayIbadahCompletion,
+                    availableMonths,
+                    mySantri,
+                    filteredSantri,
+                    filteredSantriForRecap,
+                    filteredSantriForIbadah,
+                    isSantriFormValid,
+                    isMusyrifFormValid,
+                    
+                    // Methods
+                    getCurrentDate,
+                    getCurrentMonth,
+                    getCurrentDateString,
+                    formatDate,
+                    formatDateShort,
+                    formatDayName,
+                    getAvailableMonths,
+                    getDaysInMonth,
+                    getDateRange,
+                    toggleDarkMode,
+                    showNotification,
+                    removeNotification,
+                    getNotificationClass,
+                    getNotificationIcon,
+                    login,
+                    logout,
+                    accessPublic,
+                    backToLogin,
+                    openSantriModal,
+                    closeSantriModal,
+                    saveSantri,
+                    editSantri,
+                    deleteSantri,
+                    openMusyrifModal,
+                    closeMusyrifModal,
+                    saveMusyrif,
+                    editMusyrif,
+                    deleteMusyrif,
+                    getMusyrifName,
+                    getSantriByMusyrif,
+                    getActiveAngkatanList,
+                    getAngkatanCount,
+                    getAngkatanAverageProgress,
+                    getSantriProgress,
+                    getMonthlyMurojaah,
+                    canSaveTahfizh,
+                    saveTahfizhProgress,
+                    getTodayTahfizhProgress,
+                    toggleDateExpansion,
+                    updateIbadahStatus,
+                    getIbadahCompletion,
+                    isIbadahCompleted,
+                    getMonthlyIbadahAverage,
+                    getMonthlyIbadahSummary,
+                    getMonthlyIbadahCompletionForType,
+                    getMonthlyCompleteDays,
+                    getMonthlyPartialDays,
+                    getMonthlyIncompleteDays
+                };
+            }
+        });
+
+        app.mount('#app');
